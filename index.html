@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contract Whist Score</title>
+<style>
+body{font-family:Arial;margin:0;background:#0f172a;color:white}
+.header{padding:16px;font-size:22px;font-weight:bold;text-align:center;background:#1e293b}
+.container{padding:16px;max-width:1000px;margin:auto}
+.card{background:#1e293b;border-radius:14px;padding:16px;margin-bottom:16px}
+input{padding:10px;border-radius:8px;border:none;width:100%;margin-top:6px}
+button{padding:12px;border:none;border-radius:10px;background:#38bdf8;color:black;font-weight:bold;margin-top:10px;width:100%;cursor:pointer}
+button:disabled{opacity:0.4;cursor:not-allowed}
+.playerRow{display:grid;grid-template-columns:1fr 90px;gap:8px;align-items:center;margin-top:8px}
+.firstBidder{background:#1d4ed8;border-radius:8px;padding:4px}
+.table{width:100%;border-collapse:collapse;margin-top:10px}
+.table th,.table td{padding:6px;border-bottom:1px solid #334155;text-align:center;font-size:14px}
+.totalScore{font-weight:800;color:#facc15}
+.round{font-size:18px;margin-bottom:8px}
+.dealer{color:#fbbf24;font-weight:bold}
+.trump{color:#34d399;font-weight:bold;font-size:20px}
+.error{background:#ef4444;padding:10px;border-radius:8px;margin-bottom:10px;display:none}
+#winnerBanner{display:none;background:#16a34a;padding:18px;border-radius:12px;text-align:center;font-size:22px;font-weight:bold;margin-bottom:16px}
+</style>
+</head>
+<body>
+
+<div class="header">Contract Whist Score</div>
+
+<div class="container">
+
+<div id="setup" class="card">
+<div>Add Players (comma separated)</div>
+<input id="players" placeholder="Will, Sam, Alex">
+<button onclick="startGame()">Start Game</button>
+</div>
+
+<div id="game" style="display:none">
+
+<div id="winnerBanner"></div>
+
+<div class="card">
+<div id="errorBox" class="error"></div>
+
+<div id="roundTitle" class="round"></div>
+<div id="dealerInfo"></div>
+<div id="trumpInfo"></div>
+
+<div id="bidSection">
+<h3>Enter Contracts</h3>
+<div id="bidArea"></div>
+<button id="bidBtn" onclick="submitBids()">Record Contracts</button>
+</div>
+
+<div id="scoreSection" style="display:none">
+<h3>Enter Tricks Won</h3>
+<div id="scoreArea"></div>
+<button id="scoreBtn" onclick="submitScores()">Record Results</button>
+</div>
+
+</div>
+
+<div class="card" id="scoreCard">
+<h3>Score Table</h3>
+<table class="table" id="historyTable"></table>
+</div>
+
+</div>
+</div>
+
+<script>
+let players=[], biddingOrder=[], scores={}, zeroStreak={}, bids={}, wins={}, round=0, dealerIndex=0, history=[], gameFinished=false;
+let rounds=[7,6,5,4,3,2,1,2,3,4,5,6,7];
+let suits=["♠","♥","♦","♣","NT"];
+let roundTrump="";
+
+function showError(msg){let box=document.getElementById("errorBox"); box.innerText=msg; box.style.display="block"; setTimeout(()=>{box.style.display="none"},3500);}
+
+function startGame(){
+players=document.getElementById("players").value.split(",").map(p=>p.trim()).filter(p=>p);
+if(players.length<2){showError("Enter at least 2 players"); return;}
+players.forEach(p=>{scores[p]=0; zeroStreak[p]=0;});
+round=0; dealerIndex=0; history=[]; gameFinished=false;
+setupRound();
+document.getElementById("setup").style.display="none";
+document.getElementById("game").style.display="block";
+}
+
+function randomTrump(){return suits[Math.floor(Math.random()*suits.length)];}
+function getBiddingOrder(){let order=[]; for(let i=1;i<=players.length;i++){order.push(players[(dealerIndex+i)%players.length]);} return order;}
+
+function setupRound(){
+if(round>=rounds.length){finishGame(); return;}
+let tricks=rounds[round];
+let dealer=players[dealerIndex];
+let firstGuesser=players[(dealerIndex+1)%players.length];
+biddingOrder=getBiddingOrder();
+roundTrump=randomTrump();
+bids={}; wins={};
+document.getElementById("roundTitle").innerText="Round "+(round+1)+" — "+tricks+" cards";
+document.getElementById("dealerInfo").innerHTML="Dealer: <span class='dealer'>"+dealer+"</span> | First guess: "+firstGuesser;
+document.getElementById("trumpInfo").innerHTML="Trump: <span class='trump'>"+roundTrump+"</span>";
+
+let bidHTML="", scoreHTML="";
+biddingOrder.forEach((p,index)=>{
+let highlight=index===0?"firstBidder":"";
+bidHTML+=`<div class="playerRow ${highlight}"><div>${p}</div><input type="number" id="bid_${p}" min="0" max="${tricks}" placeholder="Bid"></div>`;
+scoreHTML+=`<div class="playerRow ${highlight}"><div>${p}</div><input type="number" id="won_${p}" min="0" max="${tricks}" placeholder="Won"></div>`;
+});
+document.getElementById("bidArea").innerHTML=bidHTML;
+document.getElementById("scoreArea").innerHTML=scoreHTML;
+document.getElementById("bidSection").style.display="block";
+document.getElementById("scoreSection").style.display="none";
+updateHistoryTable();
+}
+
+function submitBids(){
+if(gameFinished) return;
+let tricks=rounds[round]; let total=0;
+for(let p of biddingOrder){
+let bid=parseInt(document.getElementById("bid_"+p).value);
+if(isNaN(bid)){showError("Enter all contracts"); return;}
+bids[p]=bid; total+=bid;
+}
+if(total===tricks){showError("Total contracts cannot equal the number of cards in the round"); return;}
+for(let p of players){
+if(bids[p]===0){zeroStreak[p]++;}else{zeroStreak[p]=0;}
+if(zeroStreak[p]>=3){showError(p+" cannot bid 0 three rounds in a row"); zeroStreak[p]=2; return;}
+}
+document.getElementById("bidSection").style.display="none";
+document.getElementById("scoreSection").style.display="block";
+}
+
+function submitScores(){
+if(gameFinished) return;
+let tricks=rounds[round]; let totalWon=0; let allCorrect=true;
+for(let p of biddingOrder){
+let won=parseInt(document.getElementById("won_"+p).value);
+if(isNaN(won)){showError("Enter all trick results"); return;}
+wins[p]=won; totalWon+=won;
+if(bids[p]!==won){allCorrect=false;}
+}
+if(totalWon!==tricks){showError("Total tricks won must equal "+tricks); return;}
+if(allCorrect){showError("Impossible: everyone cannot make their contract"); return;}
+
+let roundRecord={round:round+1,trump:roundTrump,bids:{},scores:{}};
+for(let p of players){
+scores[p]+=wins[p];
+if(bids[p]===wins[p]){scores[p]+=10;}
+roundRecord.bids[p]=bids[p];
+roundRecord.scores[p]=scores[p];
+}
+history.push(roundRecord);
+round++; dealerIndex=(dealerIndex+1)%players.length;
+setupRound();
+}
+
+function finishGame(){
+gameFinished=true;
+let winner=players[0];
+players.forEach(p=>{if(scores[p]>scores[winner]) winner=p;});
+let banner=document.getElementById("winnerBanner");
+banner.innerHTML=`🏆 ${winner} wins with ${scores[winner]} points!<br><button onclick="window.print()">🖨️ Print Scorecard</button><br><button onclick="location.reload()">🔄 New Game</button>`;
+banner.style.display="block";
+}
+
+function updateHistoryTable(){
+let html="<tr><th>Rnd</th><th>Trump</th>";
+players.forEach(p=>{html+="<th>"+p+" bid</th>";});
+players.forEach(p=>{html+="<th class='totalScore'>"+p+" total</th>";});
+html+="</tr>";
+history.forEach(r=>{
+html+="<tr>";
+html+="<td>"+r.round+"</td>";
+html+="<td class='trump'>"+r.trump+"</td>";
+players.forEach(p=>{html+="<td>"+r.bids[p]+"</td>";});
+players.forEach(p=>{html+="<td class='totalScore'>"+r.scores[p]+"</td>";});
+html+="</tr>";
+});
+document.getElementById("historyTable").innerHTML=html;
+}
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contract Whist Score</title>
+<style>
+body{font-family:Arial;margin:0;background:#0f172a;color:white}
+.header{padding:16px;font-size:22px;font-weight:bold;text-align:center;background:#1e293b}
+.container{padding:16px;max-width:1000px;margin:auto}
+.card{background:#1e293b;border-radius:14px;padding:16px;margin-bottom:16px}
+input{padding:10px;border-radius:8px;border:none;width:100%;margin-top:6px}
+button{padding:12px;border:none;border-radius:10px;background:#38bdf8;color:black;font-weight:bold;margin-top:10px;width:100%;cursor:pointer}
+button:disabled{opacity:0.4;cursor:not-allowed}
+.playerRow{display:grid;grid-template-columns:1fr 90px;gap:8px;align-items:center;margin-top:8px}
+.firstBidder{background:#1d4ed8;border-radius:8px;padding:4px}
+.table{width:100%;border-collapse:collapse;margin-top:10px}
+.table th,.table td{padding:6px;border-bottom:1px solid #334155;text-align:center;font-size:14px}
+.totalScore{font-weight:800;color:#facc15}
+.round{font-size:18px;margin-bottom:8px}
+.dealer{color:#fbbf24;font-weight:bold}
+.trump{color:#34d399;font-weight:bold;font-size:20px}
+.error{background:#ef4444;padding:10px;border-radius:8px;margin-bottom:10px;display:none}
+#winnerBanner{display:none;background:#16a34a;padding:18px;border-radius:12px;text-align:center;font-size:22px;font-weight:bold;margin-bottom:16px}
+</style>
+</head>
+<body>
+
+<div class="header">Contract Whist Score</div>
+
+<div class="container">
+
+<div id="setup" class="card">
+<div>Add Players (comma separated)</div>
+<input id="players" placeholder="Will, Sam, Alex">
+<button onclick="startGame()">Start Game</button>
+</div>
+
+<div id="game" style="display:none">
+
+<div id="winnerBanner"></div>
+
+<div class="card">
+<div id="errorBox" class="error"></div>
+
+<div id="roundTitle" class="round"></div>
+<div id="dealerInfo"></div>
+<div id="trumpInfo"></div>
+
+<div id="bidSection">
+<h3>Enter Contracts</h3>
+<div id="bidArea"></div>
+<button id="bidBtn" onclick="submitBids()">Record Contracts</button>
+</div>
+
+<div id="scoreSection" style="display:none">
+<h3>Enter Tricks Won</h3>
+<div id="scoreArea"></div>
+<button id="scoreBtn" onclick="submitScores()">Record Results</button>
+</div>
+
+</div>
+
+<div class="card" id="scoreCard">
+<h3>Score Table</h3>
+<table class="table" id="historyTable"></table>
+</div>
+
+</div>
+</div>
+
+<script>
+let players=[], biddingOrder=[], scores={}, zeroStreak={}, bids={}, wins={}, round=0, dealerIndex=0, history=[], gameFinished=false;
+let rounds=[7,6,5,4,3,2,1,2,3,4,5,6,7];
+let suits=["♠","♥","♦","♣","NT"];
+let roundTrump="";
+
+function showError(msg){let box=document.getElementById("errorBox"); box.innerText=msg; box.style.display="block"; setTimeout(()=>{box.style.display="none"},3500);}
+
+function startGame(){
+players=document.getElementById("players").value.split(",").map(p=>p.trim()).filter(p=>p);
+if(players.length<2){showError("Enter at least 2 players"); return;}
+players.forEach(p=>{scores[p]=0; zeroStreak[p]=0;});
+round=0; dealerIndex=0; history=[]; gameFinished=false;
+setupRound();
+document.getElementById("setup").style.display="none";
+document.getElementById("game").style.display="block";
+}
+
+function randomTrump(){return suits[Math.floor(Math.random()*suits.length)];}
+function getBiddingOrder(){let order=[]; for(let i=1;i<=players.length;i++){order.push(players[(dealerIndex+i)%players.length]);} return order;}
+
+function setupRound(){
+if(round>=rounds.length){finishGame(); return;}
+let tricks=rounds[round];
+let dealer=players[dealerIndex];
+let firstGuesser=players[(dealerIndex+1)%players.length];
+biddingOrder=getBiddingOrder();
+roundTrump=randomTrump();
+bids={}; wins={};
+document.getElementById("roundTitle").innerText="Round "+(round+1)+" — "+tricks+" cards";
+document.getElementById("dealerInfo").innerHTML="Dealer: <span class='dealer'>"+dealer+"</span> | First guess: "+firstGuesser;
+document.getElementById("trumpInfo").innerHTML="Trump: <span class='trump'>"+roundTrump+"</span>";
+
+let bidHTML="", scoreHTML="";
+biddingOrder.forEach((p,index)=>{
+let highlight=index===0?"firstBidder":"";
+bidHTML+=`<div class="playerRow ${highlight}"><div>${p}</div><input type="number" id="bid_${p}" min="0" max="${tricks}" placeholder="Bid"></div>`;
+scoreHTML+=`<div class="playerRow ${highlight}"><div>${p}</div><input type="number" id="won_${p}" min="0" max="${tricks}" placeholder="Won"></div>`;
+});
+document.getElementById("bidArea").innerHTML=bidHTML;
+document.getElementById("scoreArea").innerHTML=scoreHTML;
+document.getElementById("bidSection").style.display="block";
+document.getElementById("scoreSection").style.display="none";
+updateHistoryTable();
+}
+
+function submitBids(){
+if(gameFinished) return;
+let tricks=rounds[round]; let total=0;
+for(let p of biddingOrder){
+let bid=parseInt(document.getElementById("bid_"+p).value);
+if(isNaN(bid)){showError("Enter all contracts"); return;}
+bids[p]=bid; total+=bid;
+}
+if(total===tricks){showError("Total contracts cannot equal the number of cards in the round"); return;}
+for(let p of players){
+if(bids[p]===0){zeroStreak[p]++;}else{zeroStreak[p]=0;}
+if(zeroStreak[p]>=3){showError(p+" cannot bid 0 three rounds in a row"); zeroStreak[p]=2; return;}
+}
+document.getElementById("bidSection").style.display="none";
+document.getElementById("scoreSection").style.display="block";
+}
+
+function submitScores(){
+if(gameFinished) return;
+let tricks=rounds[round]; let totalWon=0; let allCorrect=true;
+for(let p of biddingOrder){
+let won=parseInt(document.getElementById("won_"+p).value);
+if(isNaN(won)){showError("Enter all trick results"); return;}
+wins[p]=won; totalWon+=won;
+if(bids[p]!==won){allCorrect=false;}
+}
+if(totalWon!==tricks){showError("Total tricks won must equal "+tricks); return;}
+if(allCorrect){showError("Impossible: everyone cannot make their contract"); return;}
+
+let roundRecord={round:round+1,trump:roundTrump,bids:{},scores:{}};
+for(let p of players){
+scores[p]+=wins[p];
+if(bids[p]===wins[p]){scores[p]+=10;}
+roundRecord.bids[p]=bids[p];
+roundRecord.scores[p]=scores[p];
+}
+history.push(roundRecord);
+round++; dealerIndex=(dealerIndex+1)%players.length;
+setupRound();
+}
+
+function finishGame(){
+gameFinished=true;
+let winner=players[0];
+players.forEach(p=>{if(scores[p]>scores[winner]) winner=p;});
+let banner=document.getElementById("winnerBanner");
+banner.innerHTML=`🏆 ${winner} wins with ${scores[winner]} points!<br><button onclick="window.print()">🖨️ Print Scorecard</button><br><button onclick="location.reload()">🔄 New Game</button>`;
+banner.style.display="block";
+}
+
+function updateHistoryTable(){
+let html="<tr><th>Rnd</th><th>Trump</th>";
+players.forEach(p=>{html+="<th>"+p+" bid</th>";});
+players.forEach(p=>{html+="<th class='totalScore'>"+p+" total</th>";});
+html+="</tr>";
+history.forEach(r=>{
+html+="<tr>";
+html+="<td>"+r.round+"</td>";
+html+="<td class='trump'>"+r.trump+"</td>";
+players.forEach(p=>{html+="<td>"+r.bids[p]+"</td>";});
+players.forEach(p=>{html+="<td class='totalScore'>"+r.scores[p]+"</td>";});
+html+="</tr>";
+});
+document.getElementById("historyTable").innerHTML=html;
+}
+</script>
+
+</body>
+</html>
